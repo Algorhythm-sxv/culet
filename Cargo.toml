@@ -1,0 +1,13 @@
+[package]
+name = "culet"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.76"
+glam = { version = "0.25.0", features = ["glam-assert"] }
+image = "0.24.7"
+rand = { version = "0.8.5", features = ["small_rng"] }
+stl_io = "0.7.0"
