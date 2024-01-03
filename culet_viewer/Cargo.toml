@@ -1,0 +1,9 @@
+[package]
+name = "culet-viewer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+culet-lib = { path = "../culet_lib/" }
+eframe = "0.24.1"
+egui = "0.24.1"

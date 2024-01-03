@@ -1,6 +1,6 @@
 use glam::*;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Camera {
     look_dir: Vec3,
     up: Vec3,

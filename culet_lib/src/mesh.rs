@@ -1,12 +1,18 @@
-use std::ops::{Index, Range};
+use std::{
+    fs::OpenOptions,
+    ops::{Index, Range},
+    path::Path,
+};
 
 use glam::*;
+use stl_io::create_stl_reader;
 
 use crate::{
     hittable::{HitInfo, Hittable},
     material::Material,
 };
 
+#[derive(Copy, Clone, Debug)]
 pub struct Triangle {
     points: [Vec3; 3],
     normal: Vec3,
@@ -123,6 +129,7 @@ impl Hittable for Triangle {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct BoundingBox {
     range_x: Range<f32>,
     range_y: Range<f32>,
@@ -173,6 +180,7 @@ impl Hittable for BoundingBox {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Mesh {
     origin: Vec3,
     triangles: Vec<Triangle>,
@@ -198,6 +206,25 @@ impl Hittable for Mesh {
 }
 
 impl Mesh {
+    pub fn load_from_stl<P: AsRef<Path>>(origin: Vec3, path: P) -> Self {
+        let mut stl_file = OpenOptions::new()
+            .read(true)
+            .open(path.as_ref())
+            .expect(&format!("File not found: {}", path.as_ref().display()));
+        let stl = create_stl_reader(&mut stl_file)
+            .expect(&format!("Invalid STL in file: {}", path.as_ref().display()));
+        let tris: Vec<Triangle> = stl
+            .map(|t| {
+                t.expect(&format!(
+                    "Invalid triangle in : {}",
+                    path.as_ref().display()
+                ))
+                .into()
+            })
+            .collect();
+
+        Self::from_tris_with_material(origin, tris, Material::gem())
+    }
     pub fn from_tris_with_material<I, T>(origin: Vec3, tris: I, material: Material) -> Self
     where
         I: IntoIterator<Item = T>,

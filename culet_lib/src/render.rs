@@ -1,42 +1,73 @@
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc::*,
+    Arc,
+};
+
 use glam::{vec3, Vec3};
-use rand::{rngs::SmallRng, Rng, SeedableRng};
+use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
+use rayon::ThreadPoolBuilder;
 
 use crate::{camera::Camera, hittable::Hittable, material::Material, ray::Ray, scene::Scene};
 
+pub enum RenderMsg {
+    Pixel { x: u32, y: u32, color: Vec3 },
+    Abort,
+}
+
+#[derive(Clone, Debug)]
+pub struct AbortSignal(Arc<AtomicBool>);
+
+impl AbortSignal {
+    pub fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+    pub fn abort(&self) {
+        self.0.store(true, Ordering::Relaxed)
+    }
+    pub fn is_aborted(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
 pub enum LightingModel {
     Isometric,
     Cosine,
 }
 
-pub struct RenderInfo {
-    camera: Camera,
-    scene: Scene,
-    image_width: usize,
-    image_height: usize,
-    samples_per_pixel: usize,
-    max_bounces: usize,
-    lighting_model: LightingModel,
-    background_color: Vec3,
+#[derive(Clone, Debug)]
+pub struct RenderOptions {
+    pub camera: Camera,
+    pub scene: Arc<Scene>,
+    pub image_width: usize,
+    pub image_height: usize,
+    pub samples_per_pixel: usize,
+    pub max_bounces: usize,
+    pub lighting_model: LightingModel,
+    pub background_color: Vec3,
+    pub threads: usize,
 }
 
-impl RenderInfo {
+impl RenderOptions {
     pub fn new() -> Self {
         Self {
             camera: Camera::default(),
-            scene: Scene::empty(),
+            scene: Arc::new(Scene::empty()),
             image_width: 1280,
             image_height: 720,
             samples_per_pixel: 1,
             max_bounces: 1,
             lighting_model: LightingModel::Cosine,
             background_color: Vec3::splat(0.1),
+            threads: 1,
         }
     }
     pub fn camera(mut self, camera: Camera) -> Self {
         self.camera = camera;
         self
     }
-    pub fn scene(mut self, scene: Scene) -> Self {
+    pub fn scene(mut self, scene: Arc<Scene>) -> Self {
         self.scene = scene;
         self
     }
@@ -64,36 +95,70 @@ impl RenderInfo {
         self
     }
 
-    pub fn render(&self) -> Vec<Vec3> {
-        let mut pixels = Vec::with_capacity(self.image_width * self.image_height);
+    pub fn threads(mut self, threads: usize) -> Self {
+        self.threads = threads;
+        self
+    }
+
+    pub fn render_streaming(&self) -> (Receiver<RenderMsg>, AbortSignal) {
+        let mut pixels: Vec<usize> = (0..self.image_width * self.image_height).collect();
 
         let (top_left, viewport_width, viewport_height) = self.camera.viewport();
         let pixel_x_delta = viewport_width / self.image_width as f32;
         let pixel_y_delta = viewport_height / self.image_height as f32;
 
         let mut rng = SmallRng::seed_from_u64(0x123456789ABCDEF);
-        for y in 0..self.image_height {
-            for x in 0..self.image_width {
-                if (x, y) == (187, 157) {
-                    dbg!((x, y));
-                }
-                let mut pixel = Vec3::default();
-                for i in 0..self.samples_per_pixel {
-                    let mut pixel_position = top_left
-                        + (x as f32 + 0.5) * pixel_x_delta
-                        + (y as f32 + 0.5) * pixel_y_delta;
-                    if i != 0 {
-                        let x_jitter = rng.gen_range(-0.5..0.5);
-                        let y_jitter = rng.gen_range(-0.5..0.5);
-                        pixel_position += x_jitter * pixel_x_delta + y_jitter * pixel_y_delta;
+        pixels.shuffle(&mut rng);
+
+        let (tx, rx) = channel();
+
+        let thread_pool = ThreadPoolBuilder::new()
+            .num_threads(self.threads)
+            .build()
+            .unwrap();
+
+        let abort_signal = AbortSignal::new();
+
+        pixels.chunks(self.threads).for_each(|chunk| {
+            let mut rng = rng.clone();
+            let tx = tx.clone();
+            let options = self.clone();
+            let chunk = chunk.to_vec();
+            let abort_signal = abort_signal.clone();
+
+            thread_pool.spawn(move || {
+                for i in chunk {
+                    if abort_signal.is_aborted() {
+                        break;
                     }
-                    let ray = Ray::new(self.camera.position, pixel_position - self.camera.position);
-                    pixel += self.trace(&ray, self.max_bounces);
+                    let x = i % options.image_width;
+                    let y = i / options.image_width;
+                    let mut pixel = Vec3::default();
+                    for i in 0..options.samples_per_pixel {
+                        let mut pixel_position = top_left
+                            + (x as f32 + 0.5) * pixel_x_delta
+                            + (y as f32 + 0.5) * pixel_y_delta;
+                        if i != 0 {
+                            let x_jitter = rng.gen_range(-0.5..0.5);
+                            let y_jitter = rng.gen_range(-0.5..0.5);
+                            pixel_position += x_jitter * pixel_x_delta + y_jitter * pixel_y_delta;
+                        }
+                        let ray = Ray::new(
+                            options.camera.position,
+                            pixel_position - options.camera.position,
+                        );
+                        pixel += options.trace(&ray, options.max_bounces);
+                    }
+                    let _ = tx.send(RenderMsg::Pixel {
+                        x: x as u32,
+                        y: y as u32,
+                        color: pixel / options.samples_per_pixel as f32,
+                    });
                 }
-                pixels.push(pixel / self.samples_per_pixel as f32);
-            }
-        }
-        pixels
+            });
+        });
+
+        (rx, abort_signal)
     }
 
     pub fn trace(&self, ray: &Ray, max_bounces: usize) -> Vec3 {

@@ -1,5 +1,6 @@
 use crate::{hittable::Hittable, mesh::Mesh, ray::Ray};
 
+#[derive(Clone, Debug)]
 pub struct Scene {
     meshes: Vec<Mesh>,
     shadow_bias: f32,
