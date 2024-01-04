@@ -1,6 +1,9 @@
 use glam::Vec3;
 
-#[derive(Copy, Clone, Debug)]
+pub const DEFAULT_GEM_COLOR: Vec3 = Vec3::new(1.0, 0.0, 1.0);
+pub const DEFAULT_GEM_RI: f32 = 1.54;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Material {
     Refractive { color: Vec3, refractive_index: f32 },
     Diffuse { color: Vec3 },
@@ -22,8 +25,8 @@ impl Material {
     }
     pub fn gem() -> Self {
         Self::Refractive {
-            color: Vec3::new(1.0, 0.0, 1.0),
-            refractive_index: 1.5,
+            color: DEFAULT_GEM_COLOR,
+            refractive_index: DEFAULT_GEM_RI,
         }
     }
     pub fn color(&self) -> Vec3 {

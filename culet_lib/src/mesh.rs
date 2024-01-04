@@ -210,16 +210,13 @@ impl Mesh {
         let mut stl_file = OpenOptions::new()
             .read(true)
             .open(path.as_ref())
-            .expect(&format!("File not found: {}", path.as_ref().display()));
+            .unwrap_or_else(|_| panic!("File not found: {}", path.as_ref().display()));
         let stl = create_stl_reader(&mut stl_file)
-            .expect(&format!("Invalid STL in file: {}", path.as_ref().display()));
+            .unwrap_or_else(|_| panic!("Invalid STL in file: {}", path.as_ref().display()));
         let tris: Vec<Triangle> = stl
             .map(|t| {
-                t.expect(&format!(
-                    "Invalid triangle in : {}",
-                    path.as_ref().display()
-                ))
-                .into()
+                t.unwrap_or_else(|_| panic!("Invalid triangle in : {}", path.as_ref().display()))
+                    .into()
             })
             .collect();
 
@@ -278,5 +275,56 @@ impl Mesh {
                 range_z: min_z..max_z.max(min_z + 0.1),
             },
         }
+    }
+
+    pub fn apply_color(&mut self, new_color: Vec3) -> bool {
+        let mut changed = false;
+        for t in self.triangles.iter_mut() {
+            match t.material {
+                Material::Refractive {
+                    color,
+                    refractive_index,
+                } => {
+                    if new_color != color {
+                        t.material = Material::Refractive {
+                            color: new_color,
+                            refractive_index,
+                        };
+                        changed = true;
+                    }
+                }
+                Material::Diffuse { color } => {
+                    if new_color != color {
+                        t.material = Material::Diffuse { color: new_color };
+                        changed = true;
+                    }
+                }
+                Material::Light { color } => {
+                    if new_color != color {
+                        t.material = Material::Light { color: new_color };
+                        changed = true
+                    }
+                }
+            }
+        }
+        changed
+    }
+
+    pub fn apply_ri(&mut self, new_ri: f32) -> bool {
+        let mut changed = false;
+        for t in self.triangles.iter_mut() {
+            if let Material::Refractive {
+                color,
+                refractive_index: _,
+            } = t.material
+            {
+                t.material = Material::Refractive {
+                    color,
+                    refractive_index: new_ri,
+                };
+                changed = true;
+            }
+        }
+        changed
     }
 }

@@ -8,7 +8,13 @@ use glam::{vec3, Vec3};
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
 use rayon::ThreadPoolBuilder;
 
-use crate::{camera::Camera, hittable::Hittable, material::Material, ray::Ray, scene::Scene};
+use crate::{
+    camera::Camera,
+    hittable::Hittable,
+    material::{Material, DEFAULT_GEM_COLOR, DEFAULT_GEM_RI},
+    ray::Ray,
+    scene::Scene,
+};
 
 pub enum RenderMsg {
     Pixel { x: u32, y: u32, color: Vec3 },
@@ -30,6 +36,12 @@ impl AbortSignal {
     }
 }
 
+impl Default for AbortSignal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum LightingModel {
     Isometric,
@@ -45,7 +57,10 @@ pub struct RenderOptions {
     pub samples_per_pixel: usize,
     pub max_bounces: usize,
     pub lighting_model: LightingModel,
+    pub light_intensity: f32,
     pub background_color: Vec3,
+    pub gem_color: Vec3,
+    pub gem_ri: f32,
     pub threads: usize,
 }
 
@@ -59,7 +74,10 @@ impl RenderOptions {
             samples_per_pixel: 1,
             max_bounces: 1,
             lighting_model: LightingModel::Cosine,
+            light_intensity: 5.0,
             background_color: Vec3::splat(0.1),
+            gem_color: DEFAULT_GEM_COLOR,
+            gem_ri: DEFAULT_GEM_RI,
             threads: 1,
         }
     }
@@ -107,7 +125,7 @@ impl RenderOptions {
         let pixel_x_delta = viewport_width / self.image_width as f32;
         let pixel_y_delta = viewport_height / self.image_height as f32;
 
-        let mut rng = SmallRng::seed_from_u64(0x123456789ABCDEF);
+        let mut rng = SmallRng::from_entropy();
         pixels.shuffle(&mut rng);
 
         let (tx, rx) = channel();
@@ -116,25 +134,28 @@ impl RenderOptions {
             .num_threads(self.threads)
             .build()
             .unwrap();
-
         let abort_signal = AbortSignal::new();
 
         pixels.chunks(self.threads).for_each(|chunk| {
-            let mut rng = rng.clone();
+            let mut rng = SmallRng::seed_from_u64(0x123456789ABCDEF);
             let tx = tx.clone();
             let options = self.clone();
             let chunk = chunk.to_vec();
             let abort_signal = abort_signal.clone();
 
             thread_pool.spawn(move || {
-                for i in chunk {
-                    if abort_signal.is_aborted() {
-                        break;
-                    }
+                'pixel: for i in chunk {
                     let x = i % options.image_width;
                     let y = i / options.image_width;
+
+                    // if (x, y) == (200, 200) {
+                    //     dbg!((x, y));
+                    // }
                     let mut pixel = Vec3::default();
                     for i in 0..options.samples_per_pixel {
+                        if abort_signal.is_aborted() {
+                            break 'pixel;
+                        }
                         let mut pixel_position = top_left
                             + (x as f32 + 0.5) * pixel_x_delta
                             + (y as f32 + 0.5) * pixel_y_delta;
@@ -172,12 +193,12 @@ impl RenderOptions {
                         color,
                         refractive_index,
                     } => {
-                        let normal = if info.front_face {
-                            info.normal
+                        let (normal, eta_i, eta_t) = if info.front_face {
+                            (info.normal, 1.0, refractive_index)
                         } else {
-                            -info.normal
+                            (-info.normal, refractive_index, 1.0)
                         };
-                        let reflection_ratio = fresnel(ray.direction(), normal, refractive_index);
+                        let reflection_ratio = fresnel(ray.direction(), normal, eta_i, eta_t);
 
                         let exiting_pavilion =
                             !info.front_face && normal.dot(vec3(0.0, 0.0, 1.0)) > 0.0;
@@ -188,13 +209,17 @@ impl RenderOptions {
                             } else {
                                 refractive_index
                             };
-                            let cos_1 = (-ray.direction()).dot(normal).min(1.0);
-                            // refraction term
+
+                            debug_assert!(
+                                ray.direction().is_normalized() && normal.is_normalized()
+                            );
+                            let cos_1 = -ray.direction().dot(normal);
+
                             let out_perp = ri_ratio * (ray.direction() + cos_1 * normal);
                             let out_parallel =
                                 normal * -(1.0 - out_perp.length_squared().min(1.0)).sqrt();
 
-                            let out_direction = (out_perp + out_parallel).normalize();
+                            let out_direction = out_perp + out_parallel;
                             let out_origin = info.position;
 
                             self.trace(&Ray::new(out_origin, out_direction), max_bounces - 1)
@@ -212,15 +237,17 @@ impl RenderOptions {
                             self.trace(&Ray::new(out_origin, out_direction), max_bounces - 1)
                         };
 
-                        let material_reflectance = if !info.front_face { 1.0 } else { 3e-6 };
-                        let subcolor = reflection_ratio * reflection_color * material_reflectance
+                        let subcolor = reflection_ratio * reflection_color
                             + (1.0 - reflection_ratio) * refraction_color;
 
-                        if !info.front_face {
-                            subcolor * ((Vec3::splat(1.0) - color) * -0.5 * info.ray_distance).exp()
-                        } else {
-                            subcolor
-                        }
+                        subcolor
+
+                        // if !info.front_face {
+                        //     // Beer's law: attenuate color through a translucent medium
+                        //     subcolor * (color - Vec3::splat(1.0) * 0.1 * info.ray_distance).exp()
+                        // } else {
+                        //     subcolor
+                        // }
                     }
                     Material::Diffuse { color: _ } => todo!(),
                     Material::Light { color } => color,
@@ -234,14 +261,14 @@ impl RenderOptions {
                         LightingModel::Cosine => {
                             let mut cos = -ray.direction().dot(self.camera.look_dir()).min(0.0);
                             // add a head shadow directly above
-                            if cos.acos().to_degrees() < 24.0 {
+                            if cos.acos().to_degrees() < 10.0 {
                                 cos = 0.0;
                             }
-                            Vec3::splat(100000.0) * cos
+                            Vec3::splat(self.light_intensity) * cos
                         }
                         LightingModel::Isometric => {
                             if ray.direction().dot(-self.camera.look_dir()) >= 0.0 {
-                                Vec3::splat(1.0)
+                                Vec3::splat(self.light_intensity)
                             } else {
                                 Vec3::splat(0.0)
                             }
@@ -253,22 +280,19 @@ impl RenderOptions {
     }
 }
 
-pub fn gamma_correct(color: Vec3) -> [f32; 3] {
-    [
-        color[0].powf(2.2f32.recip()),
-        color[1].powf(2.2f32.recip()),
-        color[2].powf(2.2f32.recip()),
-    ]
+impl Default for RenderOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub fn gamma_correct(color: Vec3) -> Vec3 {
+    color.powf(3.2f32.recip())
 }
 
 // calculate the proportion of color that should come from reflection vs refraction
-fn fresnel(incoming: Vec3, normal: Vec3, refractive_index: f32) -> f32 {
+fn fresnel(incoming: Vec3, normal: Vec3, eta_i: f32, eta_t: f32) -> f32 {
     let cos_i = incoming.dot(normal);
-    let (eta_i, eta_t) = if cos_i > 0.0 {
-        (refractive_index, 1.0)
-    } else {
-        (1.0, refractive_index)
-    };
 
     let sin_t = (eta_i / eta_t) * (1.0 - cos_i * cos_i).max(0.0).sqrt();
     if sin_t > 1.0 {

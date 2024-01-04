@@ -37,4 +37,10 @@ impl Scene {
     pub fn shadow_bias(&self) -> f32 {
         self.shadow_bias
     }
+    pub fn meshes(&self) -> std::slice::Iter<'_, Mesh> {
+        self.meshes.iter()
+    }
+    pub fn meshes_mut(&mut self) -> std::slice::IterMut<'_, Mesh> {
+        self.meshes.iter_mut()
+    }
 }
