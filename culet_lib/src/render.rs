@@ -145,6 +145,8 @@ impl RenderOptions {
 
             thread_pool.spawn(move || {
                 'pixel: for i in chunk {
+                    #[cfg(puffin)]
+                    puffin::GlobalProfiler::lock().new_frame();
                     let x = i % options.image_width;
                     let y = i / options.image_width;
 
@@ -183,6 +185,8 @@ impl RenderOptions {
     }
 
     pub fn trace(&self, ray: &Ray, max_bounces: usize) -> Vec3 {
+        #[cfg(puffin)]
+        puffin::profile_function!();
         match self.scene.hit_point(ray, 1e-5) {
             Some(info) => {
                 if max_bounces == 0 {
@@ -204,6 +208,8 @@ impl RenderOptions {
                             !info.front_face && normal.dot(vec3(0.0, 0.0, 1.0)) > 0.0;
                         // color from refraction ray
                         let refraction_color = if reflection_ratio < 1.0 && !exiting_pavilion {
+                            #[cfg(puffin)]
+                            puffin::profile_scope!("Refraction Ray");
                             let ri_ratio = if info.front_face {
                                 1.0 / refractive_index
                             } else {
@@ -229,6 +235,8 @@ impl RenderOptions {
 
                         // color from reflection ray
                         let reflection_color = {
+                            #[cfg(puffin)]
+                            puffin::profile_scope!("Reflection ray");
                             let out_direction = (ray.direction()
                                 - 2.0 * ray.direction().dot(normal) * normal)
                                 .normalize();
@@ -292,6 +300,8 @@ pub fn gamma_correct(color: Vec3) -> Vec3 {
 
 // calculate the proportion of color that should come from reflection vs refraction
 fn fresnel(incoming: Vec3, normal: Vec3, eta_i: f32, eta_t: f32) -> f32 {
+    #[cfg(puffin)]
+    puffin::profile_function!();
     let cos_i = incoming.dot(normal);
 
     let sin_t = (eta_i / eta_t) * (1.0 - cos_i * cos_i).max(0.0).sqrt();

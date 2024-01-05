@@ -263,8 +263,15 @@ impl App for CuletViewer {
 }
 
 fn main() -> eframe::Result<()> {
+    #[cfg(puffin)]
+    {
+        let server_addr = format!("0.0.0.0:{}", puffin_http::DEFAULT_PORT);
+        let _puffin_server = puffin_http::Server::new(&server_addr).unwrap();
+        puffin::set_scopes_on(true);
+    }
+
     let native_options = NativeOptions {
-        viewport: ViewportBuilder::default().with_inner_size((1000.0, 1000.0)),
+        viewport: ViewportBuilder::default().with_inner_size((1200.0, 850.0)),
         ..Default::default()
     };
     run_native(

@@ -8,6 +8,8 @@ pub struct Scene {
 
 impl Hittable for Scene {
     fn hit_point(&self, ray: &Ray, min_distance: f32) -> Option<crate::hittable::HitInfo> {
+        #[cfg(puffin)]
+        puffin::profile_function!();
         let mut closest_hit_distance = f32::INFINITY;
         let mut closest_hit_info = None;
         for mesh in self.meshes.iter() {

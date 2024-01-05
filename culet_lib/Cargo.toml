@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 glam = { version = "0.25.0", features = ["glam-assert"] }
+puffin = { version = "0.18.1", optional = true }
 rand = { version = "0.8.5", features = ["small_rng"] }
 rayon = "1.8.0"
 stl_io = "0.7.0"

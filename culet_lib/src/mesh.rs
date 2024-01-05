@@ -81,6 +81,8 @@ impl From<&stl_io::Triangle> for Triangle {
 
 impl Hittable for Triangle {
     fn hit_point(&self, ray: &crate::ray::Ray, min_distance: f32) -> Option<HitInfo> {
+        #[cfg(puffin)]
+        puffin::profile_function!();
         // Möller-Trumbore intersection algorithm
         let edge01 = self[1] - self[0];
         let edge02 = self[2] - self[0];

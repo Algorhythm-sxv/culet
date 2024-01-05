@@ -5,5 +5,7 @@ edition = "2021"
 
 [dependencies]
 culet-lib = { path = "../culet_lib/" }
-eframe = "0.24.1"
+eframe = { version = "0.24.1", features = ["wgpu"] }
 egui = "0.24.1"
+puffin = { version = "0.18.1", optional = true }
+puffin_http = "0.15.0"
