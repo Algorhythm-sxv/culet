@@ -74,7 +74,7 @@ impl RenderOptions {
             samples_per_pixel: 1,
             max_bounces: 1,
             lighting_model: LightingModel::Cosine,
-            light_intensity: 5.0,
+            light_intensity: 1.0,
             background_color: Vec3::splat(0.1),
             gem_color: DEFAULT_GEM_COLOR,
             gem_ri: DEFAULT_GEM_RI,
@@ -240,14 +240,14 @@ impl RenderOptions {
                         let subcolor = reflection_ratio * reflection_color
                             + (1.0 - reflection_ratio) * refraction_color;
 
-                        subcolor
+                        // subcolor
 
-                        // if !info.front_face {
-                        //     // Beer's law: attenuate color through a translucent medium
-                        //     subcolor * (color - Vec3::splat(1.0) * 0.1 * info.ray_distance).exp()
-                        // } else {
-                        //     subcolor
-                        // }
+                        if !info.front_face {
+                            // Beer's law: attenuate color through a translucent medium
+                            subcolor * (-color * info.ray_distance).exp()
+                        } else {
+                            subcolor
+                        }
                     }
                     Material::Diffuse { color: _ } => todo!(),
                     Material::Light { color } => color,

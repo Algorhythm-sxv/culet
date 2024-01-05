@@ -10,7 +10,7 @@ use culet_lib::{
 use eframe::{run_native, App, CreationContext, NativeOptions};
 use egui::{
     load::SizedTexture, CentralPanel, Color32, ColorImage, DragValue, ImageSource, RichText,
-    ScrollArea, Sense, Slider, TextureHandle, TextureOptions, Vec2, ViewportBuilder,
+    ScrollArea, Sense, SidePanel, Slider, TextureHandle, TextureOptions, Vec2, ViewportBuilder,
 };
 
 const DEFAULT_SIZE: usize = 400;
@@ -78,72 +78,50 @@ impl App for CuletViewer {
         let mut color_changed = false;
         let mut ri_changed = false;
 
-        CentralPanel::default().show(ctx, |ui| {
-            ScrollArea::both().show(ui, |ui| {
-                ui.vertical_centered(|ui| {
-                    let image = egui::Image::new(ImageSource::Texture(SizedTexture::from_handle(
-                        &self.render_buffer_handle,
-                    )))
-                    .fit_to_exact_size(Vec2::splat(2.0 * DEFAULT_SIZE as f32))
-                    .sense(Sense::drag());
+        // settings panel
+        SidePanel::right(egui::Id::new("Settings panel")).show(ctx, |ui| {
+            ui.vertical(|ui| {
+                // render size
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Image Size").heading());
+                    let resp = ui.add(
+                        DragValue::new(&mut self.render_options.image_width)
+                            .clamp_range(0..=800)
+                            .speed(1.0),
+                    );
 
-                    // apply rotations
-                    let response = ui.add(image).drag_delta();
-                    if response != Vec2::splat(0.0) {
-                        let rotation_x = Mat3::from_rotation_x(-response[1] * 0.001);
-                        let rotation_y = Mat3::from_rotation_y(-response[0] * 0.001);
-                        self.render_options.camera = self
-                            .render_options
-                            .camera
-                            .position(rotation_x * rotation_y * self.render_options.camera.position)
-                            .look_at(vec3(0.0, 0.0, -1.5));
-                        rotation_changed = true;
-                    }
+                    resolution_changed = resp.changed();
                 });
 
-                // settings panel
-                ui.horizontal_centered(|ui| {
-                    // render size
+                ui.separator();
+
+                // render threads
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Threads").heading());
+                    ui.add(Slider::new(
+                        &mut self.render_options.threads,
+                        1..=std::thread::available_parallelism()
+                            .map(|n| n.get())
+                            .unwrap_or(1),
+                    ))
+                });
+
+                ui.separator();
+
+                // max bounces
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Max Bounces").heading());
+                    let resp = ui.add(Slider::new(&mut self.render_options.max_bounces, 1..=20));
+
+                    bounces_changed = resp.changed();
+                });
+
+                ui.separator();
+
+                // gem color
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Gem Color").heading());
                     ui.vertical(|ui| {
-                        ui.label(RichText::new("Image Size").heading());
-                        let resp = ui.add(
-                            DragValue::new(&mut self.render_options.image_width)
-                                .clamp_range(0..=800)
-                                .speed(1.0),
-                        );
-
-                        resolution_changed = resp.changed();
-                    });
-
-                    ui.separator();
-
-                    // render threads
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new("Threads").heading());
-                        ui.add(Slider::new(
-                            &mut self.render_options.threads,
-                            1..=std::thread::available_parallelism()
-                                .map(|n| n.get())
-                                .unwrap_or(1),
-                        ))
-                    });
-
-                    ui.separator();
-
-                    // max bounces
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new("Max Bounces").heading());
-                        let resp =
-                            ui.add(Slider::new(&mut self.render_options.max_bounces, 1..=20));
-
-                        bounces_changed = resp.changed();
-                    });
-
-                    ui.separator();
-
-                    // gem color
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new("Gem Color").heading());
                         ui.label("Red");
                         let resp_red = ui.add(
                             Slider::new(&mut self.render_options.gem_color[0], 0.0..=10.0)
@@ -163,32 +141,56 @@ impl App for CuletViewer {
                         color_changed =
                             resp_red.changed() || resp_blue.changed() || resp_green.changed();
                     });
+                });
 
-                    ui.separator();
+                ui.separator();
 
-                    // refractive index
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new("Refractive Index").heading());
-                        let resp = ui.add(
-                            Slider::new(&mut self.render_options.gem_ri, 1.0..=3.0)
-                                .drag_value_speed(0.001),
-                        );
-                        ri_changed = resp.changed();
-                    });
+                // refractive index
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Refractive Index").heading());
+                    let resp = ui.add(
+                        Slider::new(&mut self.render_options.gem_ri, 1.0..=3.0)
+                            .drag_value_speed(0.001),
+                    );
+                    ri_changed = resp.changed();
+                });
 
-                    ui.separator();
+                ui.separator();
 
-                    // light intensity
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new("Light Intensity").heading());
-                        let resp = ui.add(
-                            Slider::new(&mut self.render_options.light_intensity, 0.1..=100000.0)
-                                .logarithmic(true)
-                                .smallest_positive(1.0),
-                        );
+                // light intensity
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Light Intensity").heading());
+                    let resp = ui.add(Slider::new(
+                        &mut self.render_options.light_intensity,
+                        0.1..=5.0,
+                    ));
 
-                        lighting_changed = resp.changed();
-                    });
+                    lighting_changed = resp.changed();
+                });
+            });
+        });
+
+        CentralPanel::default().show(ctx, |ui| {
+            ScrollArea::vertical().show(ui, |ui| {
+                ui.vertical_centered_justified(|ui| {
+                    let image = egui::Image::new(ImageSource::Texture(SizedTexture::from_handle(
+                        &self.render_buffer_handle,
+                    )))
+                    .fit_to_exact_size(Vec2::splat(2.0 * DEFAULT_SIZE as f32))
+                    .sense(Sense::drag());
+
+                    // apply rotations
+                    let response = ui.add(image).drag_delta();
+                    if response != Vec2::splat(0.0) {
+                        let rotation_x = Mat3::from_rotation_x(-response[1] * 0.001);
+                        let rotation_y = Mat3::from_rotation_y(-response[0] * 0.001);
+                        self.render_options.camera = self
+                            .render_options
+                            .camera
+                            .position(rotation_x * rotation_y * self.render_options.camera.position)
+                            .look_at(vec3(0.0, 0.0, -1.5));
+                        rotation_changed = true;
+                    }
                 });
             });
         });
