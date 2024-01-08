@@ -7,7 +7,7 @@ use culet_lib::{
     render::{AbortSignal, RenderMsg, RenderOptions},
     scene::Scene,
 };
-use eframe::{run_native, App, CreationContext, NativeOptions};
+use eframe::{run_native, App, CreationContext, NativeOptions, Renderer};
 use egui::{
     load::SizedTexture, CentralPanel, Color32, ColorImage, DragValue, ImageSource, RichText,
     ScrollArea, Sense, SidePanel, Slider, TextureHandle, TextureOptions, Vec2, ViewportBuilder,
@@ -272,6 +272,7 @@ fn main() -> eframe::Result<()> {
 
     let native_options = NativeOptions {
         viewport: ViewportBuilder::default().with_inner_size((1200.0, 850.0)),
+        renderer: Renderer::Wgpu,
         ..Default::default()
     };
     run_native(
