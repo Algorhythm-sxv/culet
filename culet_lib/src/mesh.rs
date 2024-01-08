@@ -4,6 +4,7 @@ use std::{
     path::Path,
 };
 
+use bytemuck::{Pod, Zeroable};
 use glam::*;
 use stl_io::create_stl_reader;
 
@@ -76,6 +77,32 @@ impl From<stl_io::Triangle> for Triangle {
 impl From<&stl_io::Triangle> for Triangle {
     fn from(value: &stl_io::Triangle) -> Self {
         Self::from(value.clone())
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
+pub struct GpuTriangle {
+    points: [Vec3; 3],
+    normal: Vec3,
+}
+
+impl GpuTriangle {
+    pub fn new(p0: Vec3, p1: Vec3, p2: Vec3) -> Self {
+        let normal = (p1 - p0).cross(p2 - p0);
+        Self {
+            points: [p0, p1, p2],
+            normal,
+        }
+    }
+}
+
+impl<T: AsRef<Triangle>> From<T> for GpuTriangle {
+    fn from(value: T) -> Self {
+        Self {
+            points: value.as_ref().points,
+            normal: value.as_ref().normal,
+        }
     }
 }
 

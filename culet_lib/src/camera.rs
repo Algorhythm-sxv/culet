@@ -1,13 +1,23 @@
+use bytemuck::{Pod, Zeroable};
 use glam::*;
 
-#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct Camera {
+    // align 16
     look_dir: Vec3,
+    _pad_0: f32,
+    // align 16
     up: Vec3,
+    _pad_1: f32,
+    // align 16
     pub position: Vec3,
+    // align 4
     fov_h: f32,
     aspect_ratio: f32,
     pub focal_length: f32,
+    _pad_2: f32,
+    _pad_3: f32,
 }
 
 impl Default for Camera {
@@ -19,6 +29,10 @@ impl Default for Camera {
             fov_h: 90.0,
             aspect_ratio: 16.0 / 9.0,
             focal_length: 1.0,
+            _pad_0: 0.0,
+            _pad_1: 0.0,
+            _pad_2: 0.0,
+            _pad_3: 0.0,
         }
     }
 }
@@ -43,6 +57,10 @@ impl Camera {
             fov_h,
             aspect_ratio,
             focal_length,
+            _pad_0: 0.0,
+            _pad_1: 0.0,
+            _pad_2: 0.0,
+            _pad_3: 0.0,
         }
     }
     pub fn viewport(&self) -> (Vec3, Vec3, Vec3) {
@@ -57,7 +75,7 @@ impl Camera {
         if up.dot(self.up) <= f32::EPSILON {
             up = -up;
         }
-        let left = self.up.cross(self.look_dir);
+        let left = self.up.cross(self.look_dir).normalize();
 
         (
             self.position

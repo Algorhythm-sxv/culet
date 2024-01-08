@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-glam = { version = "0.25.0", features = ["glam-assert"] }
+bytemuck = { version = "1.14.0", features = ["derive"] }
+glam = { version = "0.25.0", features = ["glam-assert", "bytemuck"] }
 puffin = { version = "0.18.1", optional = true }
 rand = { version = "0.8.5", features = ["small_rng"] }
 rayon = "1.8.0"
 stl_io = "0.7.0"
+wgpu = { version = "0.18.0", features = ["spirv"] }

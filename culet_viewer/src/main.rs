@@ -6,10 +6,11 @@ use culet_lib::{
     mesh::Mesh,
     render::{AbortSignal, RenderMsg, RenderOptions},
     scene::Scene,
+    wgpu::{WgpuHandle, TEXTURE_SIZE},
 };
 use eframe::{run_native, App, CreationContext, NativeOptions, Renderer};
 use egui::{
-    load::SizedTexture, CentralPanel, Color32, ColorImage, DragValue, ImageSource, RichText,
+    load::SizedTexture, CentralPanel, Color32, ColorImage, DragValue, ImageSource, Rgba, RichText,
     ScrollArea, Sense, SidePanel, Slider, TextureHandle, TextureOptions, Vec2, ViewportBuilder,
 };
 
@@ -21,6 +22,7 @@ struct CuletViewer {
     render_options: RenderOptions,
     render_stream: Receiver<RenderMsg>,
     render_abort: AbortSignal,
+    wgpu_handle: WgpuHandle,
 }
 
 impl CuletViewer {
@@ -55,6 +57,12 @@ impl CuletViewer {
             .image_height(DEFAULT_SIZE);
 
         let (render_stream, render_abort) = render_options.render_streaming();
+        render_abort.abort();
+        let (device, queue) = cc
+            .wgpu_render_state
+            .as_ref()
+            .map(|s| (s.device.clone(), s.queue.clone()))
+            .expect("Not running WGPU backend");
 
         Self {
             frame_buffer: ColorImage::new([DEFAULT_SIZE, DEFAULT_SIZE], Color32::BLACK),
@@ -62,6 +70,7 @@ impl CuletViewer {
             render_options,
             render_stream,
             render_abort,
+            wgpu_handle: WgpuHandle::new(device, queue),
         }
     }
 }
@@ -226,39 +235,37 @@ impl App for CuletViewer {
             // clear frame buffer
             // if resolution_changed {
             self.frame_buffer = ColorImage::new(
-                [
-                    self.render_options.image_width,
-                    self.render_options.image_height,
-                ],
+                [TEXTURE_SIZE as usize, TEXTURE_SIZE as usize],
                 Color32::BLACK,
             );
             // }
+            self.wgpu_handle.render(self.frame_buffer.as_raw_mut());
 
             // start new render
-            let (stream, abort) = self.render_options.render_streaming();
-            self.render_stream = stream;
-            self.render_abort = abort;
+            // let (stream, abort) = self.render_options.render_streaming();
+            // self.render_stream = stream;
+            // self.render_abort = abort;
         }
 
         // update max 10000px per frame
-        for _ in 0..100000 {
-            let Ok(px_msg) = self.render_stream.try_recv() else {
-                break;
-            };
+        // for _ in 0..100000 {
+        //     let Ok(px_msg) = self.render_stream.try_recv() else {
+        //         break;
+        //     };
 
-            match px_msg {
-                RenderMsg::Pixel { x, y, color } => {
-                    fn convert(c: f32) -> u8 {
-                        (c.clamp(0.0, 1.0) * u8::MAX as f32).round() as u8
-                    }
-                    self.frame_buffer[(x as usize, y as usize)] =
-                        Color32::from_rgb(convert(color[0]), convert(color[1]), convert(color[2]))
-                }
-                RenderMsg::Abort => unreachable!(),
-            }
+        //     match px_msg {
+        //         RenderMsg::Pixel { x, y, color } => {
+        //             fn convert(c: f32) -> u8 {
+        //                 (c.clamp(0.0, 1.0) * u8::MAX as f32).round() as u8
+        //             }
+        //             self.frame_buffer[(x as usize, y as usize)] =
+        //                 Color32::from_rgb(convert(color[0]), convert(color[1]), convert(color[2]))
+        //         }
+        //         RenderMsg::Abort => unreachable!(),
+        //     }
 
-            ctx.request_repaint();
-        }
+        //     ctx.request_repaint();
+        // }
     }
 }
 
