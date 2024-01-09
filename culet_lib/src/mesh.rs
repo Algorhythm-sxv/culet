@@ -80,28 +80,58 @@ impl From<&stl_io::Triangle> for Triangle {
     }
 }
 
+impl AsRef<Triangle> for Triangle {
+    fn as_ref(&self) -> &Triangle {
+        self
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
 pub struct GpuTriangle {
-    points: [Vec3; 3],
+    // align 16
+    p0: Vec3,
+    _pad_0: f32,
+    // align 16
+    p1: Vec3,
+    _pad_1: f32,
+    // align 16
+    p2: Vec3,
+    _pad_2: f32,
+    // align 16
     normal: Vec3,
+    _pad_3: f32,
+    // size 64
 }
 
 impl GpuTriangle {
     pub fn new(p0: Vec3, p1: Vec3, p2: Vec3) -> Self {
         let normal = (p1 - p0).cross(p2 - p0);
         Self {
-            points: [p0, p1, p2],
+            p0,
+            p1,
+            p2,
             normal,
+            _pad_0: 0.0,
+            _pad_1: 0.0,
+            _pad_2: 0.0,
+            _pad_3: 0.0,
         }
     }
 }
 
 impl<T: AsRef<Triangle>> From<T> for GpuTriangle {
     fn from(value: T) -> Self {
+        let value = value.as_ref();
         Self {
-            points: value.as_ref().points,
-            normal: value.as_ref().normal,
+            p0: value.points[0],
+            p1: value.points[1],
+            p2: value.points[2],
+            normal: value.normal,
+            _pad_0: 0.0,
+            _pad_1: 0.0,
+            _pad_2: 0.0,
+            _pad_3: 0.0,
         }
     }
 }
@@ -355,5 +385,9 @@ impl Mesh {
             }
         }
         changed
+    }
+
+    pub fn triangle_slice(&self) -> &[Triangle] {
+        &self.triangles
     }
 }

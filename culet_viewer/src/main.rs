@@ -6,7 +6,7 @@ use culet_lib::{
     mesh::Mesh,
     render::{AbortSignal, RenderMsg, RenderOptions},
     scene::Scene,
-    wgpu::{WgpuHandle, TEXTURE_SIZE},
+    wgpu::{self, WgpuHandle, TEXTURE_SIZE},
 };
 use eframe::{run_native, App, CreationContext, NativeOptions, Renderer};
 use egui::{
@@ -64,13 +64,23 @@ impl CuletViewer {
             .map(|s| (s.device.clone(), s.queue.clone()))
             .expect("Not running WGPU backend");
 
+        let mut wgpu_handle = WgpuHandle::new(device, queue);
+        wgpu_handle.set_camera(&camera);
+        wgpu_handle.set_mesh(render_options.scene.meshes().next().unwrap());
+
+        let mut frame_buffer = ColorImage::new(
+            [TEXTURE_SIZE as usize, TEXTURE_SIZE as usize],
+            Color32::BLACK,
+        );
+        wgpu_handle.render(frame_buffer.as_raw_mut());
+
         Self {
-            frame_buffer: ColorImage::new([DEFAULT_SIZE, DEFAULT_SIZE], Color32::BLACK),
+            frame_buffer,
             render_buffer_handle,
             render_options,
             render_stream,
             render_abort,
-            wgpu_handle: WgpuHandle::new(device, queue),
+            wgpu_handle,
         }
     }
 }
@@ -198,6 +208,7 @@ impl App for CuletViewer {
                             .camera
                             .position(rotation_x * rotation_y * self.render_options.camera.position)
                             .look_at(vec3(0.0, 0.0, -1.5));
+                        self.wgpu_handle.set_camera(&self.render_options.camera);
                         rotation_changed = true;
                     }
                 });

@@ -1,9 +1,15 @@
-use std::sync::{mpsc::channel, Arc};
+use std::{
+    num::NonZeroU32,
+    sync::{mpsc::channel, Arc},
+};
 
 use glam::vec3;
 use wgpu::{util::DeviceExt, Device, Queue};
 
-use crate::{camera::Camera, mesh::GpuTriangle};
+use crate::{
+    camera::Camera,
+    mesh::{GpuTriangle, Mesh},
+};
 
 pub const TEXTURE_SIZE: u32 = 1024;
 
@@ -52,16 +58,16 @@ impl WgpuHandle {
 
         // create a buffer to store the triangle and normal information for the GPU
         let init_tris = [GpuTriangle::new(
-            vec3(0.0, 0.0, -3.0),
-            vec3(1.0, 0.0, -3.0),
-            vec3(0.0, 1.0, -3.0),
+            vec3(0.0, 0.0, -1.5),
+            vec3(1.0, 0.0, -1.5),
+            vec3(0.0, 1.0, -1.5),
         )];
-        let vertex_buffer_desc = wgpu::util::BufferInitDescriptor {
+        let triangle_buffer_desc = wgpu::util::BufferInitDescriptor {
             label: Some("Triangle buffer"),
             contents: bytemuck::cast_slice(&init_tris),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         };
-        let triangle_buffer = device.create_buffer_init(&vertex_buffer_desc);
+        let triangle_buffer = device.create_buffer_init(&triangle_buffer_desc);
 
         // create a buffer to store the camera information for the GPU
         let camera = [Camera::default().aspect_ratio(1.0)];
@@ -192,7 +198,9 @@ impl WgpuHandle {
             compute_pass.set_bind_group(1, &self.triangle_bind_group, &[]);
             compute_pass.set_bind_group(2, &self.camera_bind_group, &[]);
             compute_pass.set_pipeline(&self.pipeline);
-            compute_pass.dispatch_workgroups(TEXTURE_SIZE, TEXTURE_SIZE, 1);
+
+            // workgroup size (64, 1, 1), divide up the X axis but not the others
+            compute_pass.dispatch_workgroups(TEXTURE_SIZE / 64, TEXTURE_SIZE, 1);
         }
 
         encoder.copy_texture_to_buffer(
@@ -230,5 +238,75 @@ impl WgpuHandle {
         }
 
         self.output_buffer.unmap();
+    }
+
+    pub fn set_camera(&mut self, new_camera: &Camera) {
+        let camera = [*new_camera];
+        // create a buffer to store the camera information for the GPU
+        let camera_buffer_desc = wgpu::util::BufferInitDescriptor {
+            label: Some("Camera buffer"),
+            contents: bytemuck::cast_slice(&camera),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        };
+        let camera_buffer = self.device.create_buffer_init(&camera_buffer_desc);
+
+        let camera_bind_group_layout =
+            self.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+        self.camera_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Camera bind group"),
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(camera_buffer.as_entire_buffer_binding()),
+            }],
+        });
+    }
+
+    pub fn set_mesh(&mut self, mesh: &Mesh) {
+        let tris: Vec<GpuTriangle> = mesh.triangle_slice().iter().map(|&t| t.into()).collect();
+
+        let triangle_buffer_desc = wgpu::util::BufferInitDescriptor {
+            label: Some("Triangle buffer"),
+            contents: bytemuck::cast_slice(&tris),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        };
+        let triangle_buffer = self.device.create_buffer_init(&triangle_buffer_desc);
+        let triangle_bind_group_layout =
+            self.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+        self.triangle_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Triangle array bind group"),
+            layout: &triangle_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(triangle_buffer.as_entire_buffer_binding()),
+            }],
+        });
     }
 }
