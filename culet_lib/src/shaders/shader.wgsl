@@ -78,6 +78,104 @@ fn intersect(ray: Ray, tri: Triangle, min_distance: f32) -> HitInfo {
     }
 }
 
+fn intersect_scene(ray: Ray) -> HitInfo {
+    var closest_hit = HitInfo(vec3f(0.0), vec3f(0.0), 1e20, false);
+
+    for (var i = 0u; i < arrayLength(&triangles); i++) {
+        let hit = intersect(ray, triangles[i], 1e-5);
+        if hit.ray_distance > 1e-5 && hit.ray_distance < closest_hit.ray_distance {
+            closest_hit = hit;
+        }
+    }
+    return closest_hit;
+}
+
+fn lighting_model(direction: vec3f) -> vec3f {
+    var cos = min(-dot(direction, camera.look_dir), 0.0);
+    if degrees(acos(cos)) < 10.0 {
+        cos = 0.0;
+    }
+    return vec3f(10.0 * cos);
+}
+
+fn fresnel(incoming: vec3f, normal: vec3f, eta_i: f32, eta_t: f32) -> f32 {
+    let cos_i = dot(incoming, normal);
+
+    let sin_t = (eta_i / eta_t) * sqrt(max((1.0 - cos_i * cos_i), 0.0));
+    if sin_t > 1.0 {
+        return 1.0;
+    } else {
+        let cos_t = sqrt(max(1.0 - sin_t * sin_t, 0.0));
+        let cos_i = abs(cos_i);
+        let r_s = ((eta_t * cos_i) - (eta_i * cos_t)) / ((eta_t * cos_t) + (eta_i * cos_t));
+        let r_p = ((eta_i * cos_i) - (eta_t * cos_t)) / ((eta_i * cos_t) + (eta_t * cos_t));
+
+        return (r_s * r_s + r_p + r_p) / 2.0;
+    }
+}
+
+struct ColorListEntry {
+    ray_distance: f32,
+    reflection_ratio: f32,
+}
+
+fn trace(pixel_ray: Ray, max_depth: i32) -> vec3f {
+    var refraction_colors = array<vec3f, 16>();
+    var reflection_info = array<ColorListEntry, 16>();
+    var reflection_color = vec3f();
+
+    let first_surface_hit = intersect_scene(pixel_ray);
+
+    // ray hit the gem
+    if first_surface_hit.ray_distance != 1e20 {
+        reflection_info[0] = ColorListEntry(first_surface_hit.ray_distance,
+            fresnel(pixel_ray.direction, first_surface_hit.normal, 1.54, 1.0));
+
+        let first_surface_reflection = normalize(reflect(pixel_ray.direction, first_surface_hit.normal));
+        reflection_color = lighting_model(first_surface_reflection);
+
+        // this is the only refraction ray that can bounce around, all others should miss
+        var ray = Ray(first_surface_hit.position, normalize(refract(pixel_ray.direction, first_surface_hit.normal, 1.0 / 1.54)));
+        for (var i = 1; i < max_depth; i++) {
+            let hit = intersect_scene(ray);
+
+            if hit.ray_distance == 1e20 {
+                // reflection ray clipped out of the gem and missed
+                break;
+            }
+
+            let reflection_direction = normalize(reflect(ray.direction, -hit.normal));
+            // internal reflection ratio
+            let reflection_ratio = fresnel(ray.direction, -hit.normal, 1.0, 1.54);
+            reflection_info[i] = ColorListEntry(hit.ray_distance, reflection_ratio);
+
+            // calculate color from escaping rays
+            if reflection_ratio != 1.0 {
+                let refraction_direction = normalize(refract(ray.direction, -hit.normal, 1.54));
+                refraction_colors[i] = lighting_model(refraction_direction);
+            }
+
+            ray = Ray(hit.position, reflection_direction);
+        }
+    } else {
+        return vec3f();
+    }
+
+    var color = vec3f();
+    // walk back through the bounces and accumulate the color
+    var start = max_depth - 1;
+    for (var i = max_depth - 1; i > 0; i--) {
+        let refraction_color = refraction_colors[i] * (1.0 - reflection_info[i].reflection_ratio);
+
+        // reflection color gets attenuated wrt Beer's law and mixed with the reflection ratio
+        color = refraction_color + color * reflection_info[i].reflection_ratio * exp(-vec3f(0.0, 0.0, 0.0) * reflection_info[i].ray_distance);
+    }
+
+    // blend first reflection and refraction
+    color = reflection_color * reflection_info[0].reflection_ratio + color * (1.0 - reflection_info[0].reflection_ratio);
+    return color;
+}
+
 @group(0)
 @binding(0)
 var texture: texture_storage_2d<rgba8unorm, write>;
@@ -101,16 +199,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
     let ray = Ray(camera.position, normalize(pixel_position - camera.position));
 
-    var color = vec3f(0.0);
-    var closest_hit = HitInfo(vec3f(0.0), vec3f(0.0), 1e20, false);
-
-    for (var i = 0u; i < arrayLength(&triangles); i++) {
-        let hit = intersect(ray, triangles[i], 1e-3);
-        if hit.ray_distance > 1e-3 && hit.ray_distance < closest_hit.ray_distance {
-            closest_hit = hit;
-        }
-    }
-    color.x = -dot(closest_hit.normal, ray.direction);
+    let color = trace(ray, 8);
 
     textureStore(texture, vec2(i32(id.x), i32(id.y)), vec4(color, 1.0));
 }
