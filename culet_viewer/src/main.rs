@@ -4,13 +4,13 @@ use culet_lib::{
     camera::Camera,
     glam::{vec3, Mat3, Vec3},
     mesh::Mesh,
-    render::{AbortSignal, RenderMsg, RenderOptions},
+    render::{AbortSignal, GpuRenderInfo, RenderMsg, RenderOptions},
     scene::Scene,
-    wgpu::{self, WgpuHandle, TEXTURE_SIZE},
+    wgpu::{WgpuHandle, TEXTURE_SIZE},
 };
 use eframe::{run_native, App, CreationContext, NativeOptions, Renderer};
 use egui::{
-    load::SizedTexture, CentralPanel, Color32, ColorImage, DragValue, ImageSource, Rgba, RichText,
+    load::SizedTexture, CentralPanel, Color32, ColorImage, DragValue, ImageSource, RichText,
     ScrollArea, Sense, SidePanel, Slider, TextureHandle, TextureOptions, Vec2, ViewportBuilder,
 };
 
@@ -40,7 +40,7 @@ impl CuletViewer {
 
         let scene = Scene::new(vec![Mesh::load_from_stl(
             vec3(0.0, 0.0, -1.5),
-            "../lowboy.stl",
+            "../lowboy.stl"
         )]);
         let render_options = RenderOptions::new()
             .camera(camera)
@@ -67,6 +67,12 @@ impl CuletViewer {
         let mut wgpu_handle = WgpuHandle::new(device, queue);
         wgpu_handle.set_camera(&camera);
         wgpu_handle.set_mesh(render_options.scene.meshes().next().unwrap());
+        wgpu_handle.set_render_info(GpuRenderInfo::new(
+            render_options.gem_color,
+            render_options.max_bounces as u32,
+            render_options.gem_ri,
+            render_options.light_intensity,
+        ));
 
         let mut frame_buffer = ColorImage::new(
             [TEXTURE_SIZE as usize, TEXTURE_SIZE as usize],
@@ -214,6 +220,14 @@ impl App for CuletViewer {
                 });
             });
         });
+
+        let gpu_render_info = GpuRenderInfo::new(
+            self.render_options.gem_color,
+            self.render_options.max_bounces as u32,
+            self.render_options.gem_ri,
+            self.render_options.light_intensity,
+        );
+        self.wgpu_handle.set_render_info(gpu_render_info);
 
         if resolution_changed {
             self.render_options.image_height = self.render_options.image_width;

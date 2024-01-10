@@ -4,6 +4,7 @@ use std::sync::{
     Arc,
 };
 
+use bytemuck::{Pod, Zeroable};
 use glam::{vec3, Vec3};
 use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
 use rayon::ThreadPoolBuilder;
@@ -311,9 +312,49 @@ fn fresnel(incoming: Vec3, normal: Vec3, eta_i: f32, eta_t: f32) -> f32 {
     } else {
         let cos_t = (1.0 - sin_t * sin_t).max(0.0).sqrt();
         let cos_i = cos_i.abs();
-        let r_s = ((eta_t * cos_i) - (eta_i * cos_t)) / ((eta_t * cos_i) + (eta_i * cos_t));
-        let r_p = ((eta_i * cos_i) - (eta_t * cos_t)) / ((eta_i * cos_i) + (eta_t * cos_t));
+        let r_s = ((eta_i * cos_i) - (eta_t * cos_t)) / ((eta_i * cos_i) + (eta_t * cos_t));
+        let r_p = ((eta_t * cos_i) - (eta_i * cos_t)) / ((eta_t * cos_i) + (eta_i * cos_t));
 
         (r_s * r_s + r_p * r_p) / 2.0
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+pub struct GpuRenderInfo {
+    // align 16
+    pub attenuation: Vec3,
+    pub max_bounces: u32,
+    pub refractive_index: f32,
+    pub light_intensity: f32,
+    _pad: [f32; 2],
+}
+
+impl GpuRenderInfo {
+    pub fn new(
+        attenuation: Vec3,
+        max_bounces: u32,
+        refractive_index: f32,
+        light_intensity: f32,
+    ) -> Self {
+        Self {
+            attenuation,
+            max_bounces,
+            refractive_index,
+            light_intensity,
+            _pad: [0.0; 2],
+        }
+    }
+}
+
+impl Default for GpuRenderInfo {
+    fn default() -> Self {
+        Self {
+            attenuation: vec3(0.0, 0.0, 0.0),
+            max_bounces: 1,
+            refractive_index: 1.0,
+            light_intensity: 1.0,
+            _pad: [0.0; 2],
+        }
     }
 }

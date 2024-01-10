@@ -22,6 +22,17 @@ struct Camera {
 @binding(0)
 var<uniform> camera: Camera;
 
+struct RenderInfo {
+    attenuation: vec3f,
+    max_bounces: u32,
+    refractive_index: f32,
+    light_intensity: f32,
+}
+
+@group(3)
+@binding(0)
+var<uniform> render_info: RenderInfo;
+
 struct HitInfo {
     position: vec3f,
     normal: vec3f,
@@ -91,11 +102,11 @@ fn intersect_scene(ray: Ray) -> HitInfo {
 }
 
 fn lighting_model(direction: vec3f) -> vec3f {
-    var cos = min(-dot(direction, camera.look_dir), 0.0);
+    var cos = max(-dot(direction, camera.look_dir), 0.0);
     if degrees(acos(cos)) < 10.0 {
         cos = 0.0;
     }
-    return vec3f(10.0 * cos);
+    return vec3f(render_info.light_intensity * cos);
 }
 
 fn fresnel(incoming: vec3f, normal: vec3f, eta_i: f32, eta_t: f32) -> f32 {
@@ -107,10 +118,10 @@ fn fresnel(incoming: vec3f, normal: vec3f, eta_i: f32, eta_t: f32) -> f32 {
     } else {
         let cos_t = sqrt(max(1.0 - sin_t * sin_t, 0.0));
         let cos_i = abs(cos_i);
-        let r_s = ((eta_t * cos_i) - (eta_i * cos_t)) / ((eta_t * cos_t) + (eta_i * cos_t));
-        let r_p = ((eta_i * cos_i) - (eta_t * cos_t)) / ((eta_i * cos_t) + (eta_t * cos_t));
+        let r_s = ((eta_i * cos_i) - (eta_t * cos_t)) / ((eta_i * cos_i) + (eta_t * cos_t));
+        let r_p = ((eta_i * cos_t) - (eta_t * cos_i)) / ((eta_i * cos_i) + (eta_t * cos_i));
 
-        return (r_s * r_s + r_p + r_p) / 2.0;
+        return (r_s * r_s + r_p * r_p) / 2.0;
     }
 }
 
@@ -129,29 +140,30 @@ fn trace(pixel_ray: Ray, max_depth: i32) -> vec3f {
     // ray hit the gem
     if first_surface_hit.ray_distance != 1e20 {
         reflection_info[0] = ColorListEntry(first_surface_hit.ray_distance,
-            fresnel(pixel_ray.direction, first_surface_hit.normal, 1.54, 1.0));
+            fresnel(pixel_ray.direction, first_surface_hit.normal, 1.0, render_info.refractive_index));
 
         let first_surface_reflection = normalize(reflect(pixel_ray.direction, first_surface_hit.normal));
         reflection_color = lighting_model(first_surface_reflection);
 
         // this is the only refraction ray that can bounce around, all others should miss
-        var ray = Ray(first_surface_hit.position, normalize(refract(pixel_ray.direction, first_surface_hit.normal, 1.0 / 1.54)));
+        var ray = Ray(first_surface_hit.position, normalize(refract(pixel_ray.direction, first_surface_hit.normal, 1.0 / render_info.refractive_index)));
         for (var i = 1; i < max_depth; i++) {
             let hit = intersect_scene(ray);
 
             if hit.ray_distance == 1e20 {
                 // reflection ray clipped out of the gem and missed
+                // return vec3f(1.0, 0.0, 0.0);
                 break;
             }
 
             let reflection_direction = normalize(reflect(ray.direction, -hit.normal));
             // internal reflection ratio
-            let reflection_ratio = fresnel(ray.direction, -hit.normal, 1.0, 1.54);
+            let reflection_ratio = fresnel(ray.direction, -hit.normal, render_info.refractive_index, 1.0);
             reflection_info[i] = ColorListEntry(hit.ray_distance, reflection_ratio);
 
             // calculate color from escaping rays
             if reflection_ratio != 1.0 {
-                let refraction_direction = normalize(refract(ray.direction, -hit.normal, 1.54));
+                let refraction_direction = normalize(refract(ray.direction, -hit.normal, render_info.refractive_index));
                 refraction_colors[i] = lighting_model(refraction_direction);
             }
 
@@ -168,7 +180,7 @@ fn trace(pixel_ray: Ray, max_depth: i32) -> vec3f {
         let refraction_color = refraction_colors[i] * (1.0 - reflection_info[i].reflection_ratio);
 
         // reflection color gets attenuated wrt Beer's law and mixed with the reflection ratio
-        color = refraction_color + color * reflection_info[i].reflection_ratio * exp(-vec3f(0.0, 0.0, 0.0) * reflection_info[i].ray_distance);
+        color = refraction_color + color * reflection_info[i].reflection_ratio * exp(-render_info.attenuation * reflection_info[i].ray_distance);
     }
 
     // blend first reflection and refraction

@@ -1,7 +1,4 @@
-use std::{
-    num::NonZeroU32,
-    sync::{mpsc::channel, Arc},
-};
+use std::sync::{mpsc::channel, Arc};
 
 use glam::vec3;
 use wgpu::{util::DeviceExt, Device, Queue};
@@ -9,6 +6,7 @@ use wgpu::{util::DeviceExt, Device, Queue};
 use crate::{
     camera::Camera,
     mesh::{GpuTriangle, Mesh},
+    render::GpuRenderInfo,
 };
 
 pub const TEXTURE_SIZE: u32 = 1024;
@@ -23,6 +21,7 @@ pub struct WgpuHandle {
     texture_bind_group: wgpu::BindGroup,
     triangle_bind_group: wgpu::BindGroup,
     camera_bind_group: wgpu::BindGroup,
+    render_info_bind_group: wgpu::BindGroup,
     pipeline: wgpu::ComputePipeline,
 }
 
@@ -78,6 +77,15 @@ impl WgpuHandle {
         };
         let camera_buffer = device.create_buffer_init(&camera_buffer_desc);
 
+        // create a container struct for render info
+        let render_info = [GpuRenderInfo::default()];
+        let render_info_buffer_desc = wgpu::util::BufferInitDescriptor {
+            label: Some("RenderInfo buffer"),
+            contents: bytemuck::cast_slice(&render_info),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        };
+        let render_info_buffer = device.create_buffer_init(&render_info_buffer_desc);
+
         let shaders = device.create_shader_module(wgpu::include_wgsl!("shaders/shader.wgsl"));
 
         let texture_bind_group_layout =
@@ -125,6 +133,21 @@ impl WgpuHandle {
                 }],
             });
 
+        let render_info_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
         let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Texture bind group"),
             layout: &texture_bind_group_layout,
@@ -152,12 +175,24 @@ impl WgpuHandle {
             }],
         });
 
+        let render_info_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Render info bind group"),
+            layout: &render_info_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(
+                    render_info_buffer.as_entire_buffer_binding(),
+                ),
+            }],
+        });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[
                 &texture_bind_group_layout,
                 &triangle_bind_group_layout,
                 &camera_bind_group_layout,
+                &render_info_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -177,6 +212,7 @@ impl WgpuHandle {
             texture_bind_group,
             triangle_bind_group,
             camera_bind_group,
+            render_info_bind_group,
             pipeline,
         }
     }
@@ -197,6 +233,7 @@ impl WgpuHandle {
             compute_pass.set_bind_group(0, &self.texture_bind_group, &[]);
             compute_pass.set_bind_group(1, &self.triangle_bind_group, &[]);
             compute_pass.set_bind_group(2, &self.camera_bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.render_info_bind_group, &[]);
             compute_pass.set_pipeline(&self.pipeline);
 
             // workgroup size (64, 1, 1), divide up the X axis but not the others
@@ -306,6 +343,42 @@ impl WgpuHandle {
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: wgpu::BindingResource::Buffer(triangle_buffer.as_entire_buffer_binding()),
+            }],
+        });
+    }
+
+    pub fn set_render_info(&mut self, info: GpuRenderInfo) {
+        let render_info = [info];
+        let render_info_buffer_desc = wgpu::util::BufferInitDescriptor {
+            label: Some("RenderInfo buffer"),
+            contents: bytemuck::cast_slice(&render_info),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        };
+        let render_info_buffer = self.device.create_buffer_init(&render_info_buffer_desc);
+
+        let render_info_bind_group_layout =
+            self.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+        self.render_info_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Render info bind group"),
+            layout: &render_info_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(
+                    render_info_buffer.as_entire_buffer_binding(),
+                ),
             }],
         });
     }
