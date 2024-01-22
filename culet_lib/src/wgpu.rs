@@ -28,10 +28,11 @@ pub struct WgpuHandle {
 impl WgpuHandle {
     pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> Self {
         // create a texture for the GPU to render to internally
+        // store the RGB channels in separate textures next to each other
         let texture_desc = wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
                 width: TEXTURE_SIZE,
-                height: TEXTURE_SIZE,
+                height: 3 * TEXTURE_SIZE,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -46,7 +47,7 @@ impl WgpuHandle {
         let texture_view = texture.create_view(&Default::default());
 
         // create a buffer to shuffle the rendered texture back to the CPU
-        let output_buffer_size = (4 * TEXTURE_SIZE * TEXTURE_SIZE) as wgpu::BufferAddress;
+        let output_buffer_size = (4 * 3 * TEXTURE_SIZE * TEXTURE_SIZE) as wgpu::BufferAddress;
         let output_buffer_desc = wgpu::BufferDescriptor {
             size: output_buffer_size,
             label: Some("GPU output buffer"),
@@ -237,7 +238,7 @@ impl WgpuHandle {
             compute_pass.set_pipeline(&self.pipeline);
 
             // workgroup size (64, 1, 1), divide up the X axis but not the others
-            compute_pass.dispatch_workgroups(TEXTURE_SIZE / 64, TEXTURE_SIZE, 1);
+            compute_pass.dispatch_workgroups(TEXTURE_SIZE / 64, 3 * TEXTURE_SIZE, 1);
         }
 
         encoder.copy_texture_to_buffer(
@@ -252,12 +253,12 @@ impl WgpuHandle {
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
                     bytes_per_row: Some(TEXTURE_SIZE * 4),
-                    rows_per_image: Some(TEXTURE_SIZE),
+                    rows_per_image: Some(3 * TEXTURE_SIZE),
                 },
             },
             wgpu::Extent3d {
                 width: TEXTURE_SIZE,
-                height: TEXTURE_SIZE,
+                height: 3 * TEXTURE_SIZE,
                 depth_or_array_layers: 1,
             },
         );
@@ -271,7 +272,14 @@ impl WgpuHandle {
         receiver.recv().unwrap().unwrap();
         {
             let view = buffer_slice.get_mapped_range();
-            output_buffer.copy_from_slice(&view[..]);
+            output_buffer
+                .chunks_exact_mut(4)
+                .enumerate()
+                .for_each(|(i, c)| {
+                    c[0] = view[4 * i];
+                    c[1] = view[4 * (TEXTURE_SIZE * TEXTURE_SIZE) as usize + 4 * i + 1];
+                    c[2] = view[2 * 4 * (TEXTURE_SIZE * TEXTURE_SIZE) as usize + 4 * i + 2];
+                });
         }
 
         self.output_buffer.unmap();

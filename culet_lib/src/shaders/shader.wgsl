@@ -26,6 +26,7 @@ struct RenderInfo {
     attenuation: vec3f,
     max_bounces: u32,
     refractive_index: f32,
+    dispersion: f32,
     light_intensity: f32,
 }
 
@@ -130,23 +131,41 @@ struct ColorListEntry {
     reflection_ratio: f32,
 }
 
-fn trace(pixel_ray: Ray, max_depth: i32) -> vec3f {
+fn trace(pixel_ray: Ray, max_depth: i32, color_index: i32) -> vec3f {
     var refraction_colors = array<vec3f, 16>();
     var reflection_info = array<ColorListEntry, 16>();
     var reflection_color = vec3f();
+
+    var ri = render_info.refractive_index;
+    var light_color = vec3(1.0);
+    switch color_index {
+        case 0 {
+            ri -= render_info.dispersion * 0.25;
+            light_color = vec3(1.0, 0.0, 0.0);
+        }
+        case 1 {
+            ri += render_info.dispersion * 0.25;
+            light_color = vec3(0.0, 1.0, 0.0);
+        }
+        case 2 {
+            ri += render_info.dispersion * 0.75;
+            light_color = vec3(0.0, 0.0, 1.0);
+        }
+        default: {}
+    }
 
     let first_surface_hit = intersect_scene(pixel_ray);
 
     // ray hit the gem
     if first_surface_hit.ray_distance != 1e20 {
         reflection_info[0] = ColorListEntry(first_surface_hit.ray_distance,
-            fresnel(pixel_ray.direction, first_surface_hit.normal, 1.0, render_info.refractive_index));
+            fresnel(pixel_ray.direction, first_surface_hit.normal, 1.0, ri));
 
         let first_surface_reflection = normalize(reflect(pixel_ray.direction, first_surface_hit.normal));
-        reflection_color = lighting_model(first_surface_reflection);
+        reflection_color = lighting_model(first_surface_reflection) * light_color;
 
         // this is the only refraction ray that can bounce around, all others should miss
-        var ray = Ray(first_surface_hit.position, normalize(refract(pixel_ray.direction, first_surface_hit.normal, 1.0 / render_info.refractive_index)));
+        var ray = Ray(first_surface_hit.position, normalize(refract(pixel_ray.direction, first_surface_hit.normal, 1.0 / ri)));
         for (var i = 1; i < max_depth; i++) {
             let hit = intersect_scene(ray);
 
@@ -158,13 +177,13 @@ fn trace(pixel_ray: Ray, max_depth: i32) -> vec3f {
 
             let reflection_direction = normalize(reflect(ray.direction, -hit.normal));
             // internal reflection ratio
-            let reflection_ratio = fresnel(ray.direction, -hit.normal, render_info.refractive_index, 1.0);
+            let reflection_ratio = fresnel(ray.direction, -hit.normal, ri, 1.0);
             reflection_info[i] = ColorListEntry(hit.ray_distance, reflection_ratio);
 
             // calculate color from escaping rays
             if reflection_ratio != 1.0 {
-                let refraction_direction = normalize(refract(ray.direction, -hit.normal, render_info.refractive_index));
-                refraction_colors[i] = lighting_model(refraction_direction);
+                let refraction_direction = normalize(refract(ray.direction, -hit.normal, ri));
+                refraction_colors[i] = lighting_model(refraction_direction) * light_color;
             }
 
             ray = Ray(hit.position, reflection_direction);
@@ -195,6 +214,9 @@ var texture: texture_storage_2d<rgba8unorm, write>;
 @compute
 @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
+    // find which channel we are in
+    let channel = id.y / (textureDimensions(texture).y / 3u);
+
     let horizontal_distance = camera.focal_length * tan(radians(camera.fov_h / 2.0));
     let vertical_distance = horizontal_distance / camera.aspect_ratio;
     var up = normalize(cross(cross(camera.up, camera.look_dir), camera.look_dir));
@@ -205,13 +227,16 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let top_left = camera.position + camera.look_dir * camera.focal_length + left * horizontal_distance + up * vertical_distance;
 
     let pixel_x_delta = left * -2.0 * horizontal_distance / f32(textureDimensions(texture).x);
-    let pixel_y_delta = up * -2.0 * vertical_distance / f32(textureDimensions(texture).y);
+    let pixel_y_delta = up * -2.0 * vertical_distance / f32(textureDimensions(texture).y / 3u);
 
-    let pixel_position = top_left + f32(id.x) * pixel_x_delta + f32(id.y) * pixel_y_delta;
+    let y_position = f32(id.y % (textureDimensions(texture).y / 3u));
+    let pixel_position = top_left + f32(id.x) * pixel_x_delta + y_position * pixel_y_delta;
 
     let ray = Ray(camera.position, normalize(pixel_position - camera.position));
 
-    let color = trace(ray, 8);
+    var color: vec3f;
+    let bounces = i32(render_info.max_bounces);
+    color = trace(ray, bounces, i32(channel));
 
     textureStore(texture, vec2(i32(id.x), i32(id.y)), vec4(color, 1.0));
 }

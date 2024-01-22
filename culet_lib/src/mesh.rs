@@ -343,11 +343,13 @@ impl Mesh {
                 Material::Refractive {
                     color,
                     refractive_index,
+                    dispersion,
                 } => {
                     if new_color != color {
                         t.material = Material::Refractive {
                             color: new_color,
                             refractive_index,
+                            dispersion,
                         };
                         changed = true;
                     }
@@ -375,11 +377,32 @@ impl Mesh {
             if let Material::Refractive {
                 color,
                 refractive_index: _,
+                dispersion,
             } = t.material
             {
                 t.material = Material::Refractive {
                     color,
                     refractive_index: new_ri,
+                    dispersion,
+                };
+                changed = true;
+            }
+        }
+        changed
+    }
+    pub fn apply_dispersion(&mut self, new_dispersion: f32) -> bool {
+        let mut changed = false;
+        for t in self.triangles.iter_mut() {
+            if let Material::Refractive {
+                color,
+                refractive_index,
+                dispersion: _,
+            } = t.material
+            {
+                t.material = Material::Refractive {
+                    color,
+                    refractive_index,
+                    dispersion: new_dispersion,
                 };
                 changed = true;
             }

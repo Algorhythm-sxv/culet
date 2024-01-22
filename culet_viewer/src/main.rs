@@ -40,7 +40,7 @@ impl CuletViewer {
 
         let scene = Scene::new(vec![Mesh::load_from_stl(
             vec3(0.0, 0.0, -1.5),
-            "../lowboy.stl"
+            "../lowboy.stl",
         )]);
         let render_options = RenderOptions::new()
             .camera(camera)
@@ -71,6 +71,7 @@ impl CuletViewer {
             render_options.gem_color,
             render_options.max_bounces as u32,
             render_options.gem_ri,
+            render_options.gem_dispersion,
             render_options.light_intensity,
         ));
 
@@ -170,7 +171,7 @@ impl App for CuletViewer {
 
                 ui.separator();
 
-                // refractive index
+                // refractive index and dispersion
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Refractive Index").heading());
                     let resp = ui.add(
@@ -178,6 +179,18 @@ impl App for CuletViewer {
                             .drag_value_speed(0.001),
                     );
                     ri_changed = resp.changed();
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Dispersion").heading());
+                    let resp = ui.add(
+                        Slider::new(&mut self.render_options.gem_dispersion, 0.0..=0.33)
+                            .logarithmic(true)
+                            .smallest_positive(0.001)
+                            .drag_value_speed(0.0001),
+                    );
+
+                    ri_changed = ri_changed || resp.changed();
                 });
 
                 ui.separator();
@@ -225,6 +238,7 @@ impl App for CuletViewer {
             self.render_options.gem_color,
             self.render_options.max_bounces as u32,
             self.render_options.gem_ri,
+            self.render_options.gem_dispersion,
             self.render_options.light_intensity,
         );
         self.wgpu_handle.set_render_info(gpu_render_info);

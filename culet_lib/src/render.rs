@@ -12,7 +12,7 @@ use rayon::ThreadPoolBuilder;
 use crate::{
     camera::Camera,
     hittable::Hittable,
-    material::{Material, DEFAULT_GEM_COLOR, DEFAULT_GEM_RI},
+    material::{Material, DEFAULT_GEM_COLOR, DEFAULT_GEM_RI, DEFAULT_GEM_DISPERSION},
     ray::Ray,
     scene::Scene,
 };
@@ -62,6 +62,7 @@ pub struct RenderOptions {
     pub background_color: Vec3,
     pub gem_color: Vec3,
     pub gem_ri: f32,
+    pub gem_dispersion: f32,
     pub threads: usize,
 }
 
@@ -79,6 +80,7 @@ impl RenderOptions {
             background_color: Vec3::splat(0.1),
             gem_color: DEFAULT_GEM_COLOR,
             gem_ri: DEFAULT_GEM_RI,
+            gem_dispersion: DEFAULT_GEM_DISPERSION,
             threads: 1,
         }
     }
@@ -197,6 +199,7 @@ impl RenderOptions {
                     Material::Refractive {
                         color,
                         refractive_index,
+                        dispersion: _,
                     } => {
                         let (normal, eta_i, eta_t) = if info.front_face {
                             (info.normal, 1.0, refractive_index)
@@ -326,8 +329,9 @@ pub struct GpuRenderInfo {
     pub attenuation: Vec3,
     pub max_bounces: u32,
     pub refractive_index: f32,
+    pub dispersion: f32,
     pub light_intensity: f32,
-    _pad: [f32; 2],
+    _pad: f32,
 }
 
 impl GpuRenderInfo {
@@ -335,14 +339,16 @@ impl GpuRenderInfo {
         attenuation: Vec3,
         max_bounces: u32,
         refractive_index: f32,
+        dispersion: f32,
         light_intensity: f32,
     ) -> Self {
         Self {
             attenuation,
             max_bounces,
             refractive_index,
+            dispersion,
             light_intensity,
-            _pad: [0.0; 2],
+            _pad: 0.0,
         }
     }
 }
@@ -353,8 +359,9 @@ impl Default for GpuRenderInfo {
             attenuation: vec3(0.0, 0.0, 0.0),
             max_bounces: 1,
             refractive_index: 1.0,
+            dispersion: 0.0,
             light_intensity: 1.0,
-            _pad: [0.0; 2],
+            _pad: 0.0,
         }
     }
 }
