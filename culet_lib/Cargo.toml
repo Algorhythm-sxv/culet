@@ -11,3 +11,8 @@ rand = { version = "0.8.5", features = ["small_rng"] }
 rayon = "1.8.0"
 stl_io = "0.7.0"
 wgpu = { version = "0.18.0", features = ["spirv"] }
+
+culet_shaders = { path = "../culet_shaders" }
+
+[build-dependencies]
+spirv-builder = { path = "../../rgpu-image-access/crates/spirv-builder" }

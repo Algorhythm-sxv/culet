@@ -211,7 +211,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
     let ray = Ray(camera.position, normalize(pixel_position - camera.position));
 
-    let color = trace(ray, 8);
+    let color = trace(ray, i32(render_info.max_bounces));
 
     textureStore(texture, vec2(i32(id.x), i32(id.y)), vec4(color, 1.0));
 }

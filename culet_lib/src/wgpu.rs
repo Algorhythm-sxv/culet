@@ -86,7 +86,7 @@ impl WgpuHandle {
         };
         let render_info_buffer = device.create_buffer_init(&render_info_buffer_desc);
 
-        let shaders = device.create_shader_module(wgpu::include_wgsl!("shaders/shader.wgsl"));
+        let shaders = device.create_shader_module(wgpu::include_spirv!(env!("culet_shaders.spv")));
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -95,7 +95,7 @@ impl WgpuHandle {
                     binding: 0,
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        access: wgpu::StorageTextureAccess::ReadWrite,
                         format: wgpu::TextureFormat::Rgba8Unorm,
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
@@ -200,7 +200,7 @@ impl WgpuHandle {
             label: None,
             layout: Some(&pipeline_layout),
             module: &shaders,
-            entry_point: "main",
+            entry_point: "main_cs",
         });
 
         Self {
