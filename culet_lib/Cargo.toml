@@ -15,4 +15,4 @@ wgpu = { version = "0.18.0", features = ["spirv"] }
 culet_shaders = { path = "../culet_shaders" }
 
 [build-dependencies]
-spirv-builder = { path = "../../rgpu-image-access/crates/spirv-builder" }
+spirv-builder = { path = "../../rust-gpu/crates/spirv-builder" }

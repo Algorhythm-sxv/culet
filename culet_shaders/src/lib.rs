@@ -6,7 +6,7 @@ use spirv_std::{spirv, Image};
 #[spirv(compute(threads(64)))]
 pub fn main_cs(
     #[spirv(global_invocation_id)] id: UVec3,
-    #[spirv(descriptor_set = 0, binding = 0)] image: &Image!(2D, format = rgba8, sampled = false, access = writeonly),
+    #[spirv(access_qualifier = writeonly, descriptor_set = 0, binding = 0)] image: &Image!(2D, format = rgba8, sampled = false),
 ) {
     unsafe {
         image.write(
