@@ -3,13 +3,13 @@ use bevy::{
         fxaa::{Fxaa, Sensitivity},
         prepass::{DepthPrepass, NormalPrepass},
     },
-    pbr::wireframe::{WireframeConfig, WireframePlugin},
-    prelude::*,
+    pbr::wireframe::WireframePlugin,
+    prelude::*, render::camera::CameraRenderGraph,
 };
 use bevy_mod_edge_detection::{EdgeDetectionCamera, EdgeDetectionConfig, EdgeDetectionPlugin};
 use bevy_panorbit_camera::*;
 use bevy_stl::StlPlugin;
-use ray_tracing::{RayTracingMesh, RayTracingPlugin, RayTracingSettings};
+use ray_tracing::{CuletCamera, CuletGraph, CuletMesh, CuletPlugin};
 
 mod ray_tracing;
 
@@ -21,7 +21,7 @@ fn main() {
         .add_plugins(PanOrbitCameraPlugin)
         .add_plugins(StlPlugin)
         .add_plugins(WireframePlugin)
-        .add_plugins(RayTracingPlugin)
+        .add_plugins(CuletPlugin)
         .init_resource::<EdgeDetectionConfig>()
         .add_systems(Startup, setup)
         .add_systems(Update, switch_cameras)
@@ -30,9 +30,6 @@ fn main() {
 
 #[derive(Component)]
 pub struct CadCamera;
-
-#[derive(Component)]
-pub struct RayCamera;
 
 fn setup(
     mut commands: Commands,
@@ -68,7 +65,7 @@ fn setup(
             material: materials.add(Color::rgb(0.9, 0.9, 0.9)),
             ..default()
         },
-        RayTracingMesh { mesh },
+        CuletMesh,
     ));
 
     // CAD wireframe camera
@@ -103,27 +100,29 @@ fn setup(
         Camera3dBundle {
             camera: Camera {
                 order: 0,
+                is_active: false,
                 ..default()
             },
+            camera_render_graph: CameraRenderGraph::new(CuletGraph),
             ..default()
         },
         PanOrbitCamera { ..default() },
-        RayCamera,
-        RayTracingSettings { ri: 1.54 },
+        CuletCamera,
     ));
 }
 
+#[allow(clippy::type_complexity)]
 fn switch_cameras(
     keys: Res<ButtonInput<KeyCode>>,
     mut cad_cam: Query<
         (&mut Camera, &mut PanOrbitCamera, &mut Transform),
-        (With<CadCamera>, Without<RayCamera>),
+        (With<CadCamera>, Without<CuletCamera>),
     >,
-    mut ray_cam: Query<(&mut Camera, &mut PanOrbitCamera, &mut Transform), With<RayCamera>>,
+    mut culet_cam: Query<(&mut Camera, &mut PanOrbitCamera, &mut Transform), With<CuletCamera>>,
 ) {
     if keys.just_pressed(KeyCode::Space) {
         let (cad_cam, cad_pan, cad_transform) = cad_cam.single_mut();
-        let (ray_cam, ray_pan, ray_transform) = ray_cam.single_mut();
+        let (ray_cam, ray_pan, ray_transform) = culet_cam.single_mut();
 
         let (
             mut active_cam,
@@ -153,9 +152,9 @@ fn switch_cameras(
         };
 
         // copy active camera params to inactive camera
-        *inactive_pan = active_pan.clone();
+        *inactive_pan = *active_pan;
         *inactive_cam = active_cam.clone();
-        *inactive_transform = active_transform.clone();
+        *inactive_transform = *active_transform;
 
         // swap cameras
         active_cam.is_active = false;
