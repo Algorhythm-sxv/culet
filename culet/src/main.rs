@@ -12,6 +12,7 @@ use bevy_stl::StlPlugin;
 use ray_tracing::{CuletCamera, CuletGraph, CuletMesh, CuletPlugin};
 
 mod ray_tracing;
+mod bvh;
 
 fn main() {
     App::new()

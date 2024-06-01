@@ -30,6 +30,8 @@ use bevy::{
     },
 };
 
+use crate::bvh::{Bvh, BvhNode};
+
 #[derive(Component)]
 pub struct CuletMesh;
 
@@ -55,6 +57,8 @@ fn extract_mesh(
 pub struct PreparedMesh {
     vertices: StorageBuffer<Vec<Vec4>>,
     indices: StorageBuffer<Vec<u32>>,
+    triangle_indices: StorageBuffer<Vec<u32>>,
+    bvh_nodes: StorageBuffer<Vec<BvhNode>>,
 }
 
 fn prepare_mesh(
@@ -69,7 +73,7 @@ fn prepare_mesh(
             .and_then(VertexAttributeValues::as_float3)
             .expect("Mesh has no vertex positions")
             .iter()
-            .map(|&f3| Vec4::new(f3[0], f3[1], f3[2], 1.0))
+            .map(|&f3| Vec3::new(f3[0], f3[1], f3[2]))
             .collect();
 
         let vertex_indices: Vec<_> = mesh
@@ -79,13 +83,20 @@ fn prepare_mesh(
             .map(|x| x as u32)
             .collect();
 
-        let mut vertices = StorageBuffer::from(vertex_positions);
-        let mut indices = StorageBuffer::from(vertex_indices);
+        let bvh = Bvh::new(&vertex_positions, &vertex_indices);
+        let (mut vertices, mut indices, mut triangle_indices, mut bvh_nodes) = bvh.gpu_buffers();
 
         vertices.write_buffer(&device, &queue);
         indices.write_buffer(&device, &queue);
+        triangle_indices.write_buffer(&device, &queue);
+        bvh_nodes.write_buffer(&device, &queue);
 
-        commands.insert_resource(PreparedMesh { vertices, indices })
+        commands.insert_resource(PreparedMesh {
+            vertices,
+            indices,
+            triangle_indices,
+            bvh_nodes,
+        })
     }
 }
 
@@ -192,7 +203,7 @@ impl ViewNode for CuletNode {
 
         let output_texture = world.resource::<OutputTexture>();
         let output_texture_view = output_texture.texture.create_view(&TextureViewDescriptor {
-            label: None,
+            label: Some("compute shader output texture"),
             format: Some(TextureFormat::Rgba32Float),
             dimension: Some(TextureViewDimension::D2),
             aspect: TextureAspect::All,
@@ -218,6 +229,8 @@ impl ViewNode for CuletNode {
             &BindGroupEntries::sequential((
                 prepared_mesh.vertices.binding().unwrap(),
                 prepared_mesh.indices.binding().unwrap(),
+                prepared_mesh.triangle_indices.binding().unwrap(),
+                prepared_mesh.bvh_nodes.binding().unwrap(),
                 camera_params.uniform.binding().unwrap(),
                 &output_texture_view,
             )),
@@ -234,7 +247,7 @@ impl ViewNode for CuletNode {
 
         let command_encoder = render_context.command_encoder();
         let mut compute_pass = command_encoder.begin_compute_pass(&ComputePassDescriptor {
-            label: None,
+            label: Some("Compute pass"),
             timestamp_writes: None,
         });
 
@@ -256,7 +269,7 @@ impl ViewNode for CuletNode {
         };
 
         let mut render_pass = command_encoder.begin_render_pass(&RenderPassDescriptor {
-            label: None,
+            label: Some("Blitting pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
                 view: target.main_texture_view(),
                 resolve_target: None,
@@ -296,6 +309,8 @@ impl FromWorld for CuletPipeline {
                 (
                     storage_buffer_read_only::<Vec<Vec4>>(false), // vertices
                     storage_buffer_read_only::<Vec<u32>>(false),  // indices
+                    storage_buffer_read_only::<Vec<u32>>(false), // triangle indices
+                    storage_buffer_read_only::<Vec<BvhNode>>(false), // BVH nodes
                     uniform_buffer::<CuletCameraParams>(false),
                     texture_storage_2d(TextureFormat::Rgba32Float, StorageTextureAccess::ReadWrite), // output texture
                 ),
