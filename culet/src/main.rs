@@ -3,27 +3,25 @@ use bevy::{
         fxaa::{Fxaa, Sensitivity},
         prepass::{DepthPrepass, NormalPrepass},
     },
-    pbr::wireframe::WireframePlugin,
-    prelude::*, render::camera::CameraRenderGraph,
+    pbr::wireframe::{WireframeConfig, WireframePlugin},
+    prelude::*,
+    render::camera::CameraRenderGraph,
 };
-use bevy_mod_edge_detection::{EdgeDetectionCamera, EdgeDetectionConfig, EdgeDetectionPlugin};
 use bevy_panorbit_camera::*;
 use bevy_stl::StlPlugin;
 use ray_tracing::{CuletCamera, CuletGraph, CuletMesh, CuletPlugin};
 
-mod ray_tracing;
 mod bvh;
+mod ray_tracing;
 
 fn main() {
     App::new()
         .insert_resource(Msaa::Off)
         .add_plugins(DefaultPlugins)
-        .add_plugins(EdgeDetectionPlugin)
         .add_plugins(PanOrbitCameraPlugin)
         .add_plugins(StlPlugin)
         .add_plugins(WireframePlugin)
         .add_plugins(CuletPlugin)
-        .init_resource::<EdgeDetectionConfig>()
         .add_systems(Startup, setup)
         .add_systems(Update, switch_cameras)
         .run();
@@ -37,10 +35,10 @@ fn setup(
     asset_server: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // commands.insert_resource(WireframeConfig {
-    //     global: true,
-    //     default_color: Color::BLACK.into(),
-    // });
+    commands.insert_resource(WireframeConfig {
+        global: true,
+        default_color: Color::BLACK.into(),
+    });
     // commands.spawn(DirectionalLightBundle {
     //     directional_light: DirectionalLight {
     //         color: Color::WHITE,
@@ -92,7 +90,6 @@ fn setup(
             edge_threshold: Sensitivity::Extreme,
             edge_threshold_min: Sensitivity::Extreme,
         },
-        EdgeDetectionCamera,
         CadCamera,
     ));
 
@@ -109,6 +106,11 @@ fn setup(
         },
         PanOrbitCamera { ..default() },
         CuletCamera,
+        Fxaa {
+            enabled: true,
+            edge_threshold: Sensitivity::Extreme,
+            edge_threshold_min: Sensitivity::Extreme,
+        },
     ));
 }
 

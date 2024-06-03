@@ -141,15 +141,20 @@ pub struct CuletCameraParams {
 
 fn extract_camera_params(
     mut commands: Commands,
-    camera: Extract<Query<&GlobalTransform, With<CuletCamera>>>,
+    camera: Extract<Query<(&GlobalTransform, &Projection), With<CuletCamera>>>,
 ) {
-    let camera = camera.single();
+    let (transform, projection) = camera.single();
+
+    let fov = match projection {
+        Projection::Perspective(p) => p.fov,
+        Projection::Orthographic(_) => 0.0,
+    };
 
     let params = CuletCameraParams {
-        origin: camera.translation(),
-        look_dir: camera.forward(),
-        up: camera.up(),
-        fov: 30.0,
+        origin: transform.translation(),
+        look_dir: transform.forward(),
+        up: transform.up(),
+        fov,
         ..default()
     };
 
@@ -172,6 +177,30 @@ fn prepare_camera_params(
 
     commands.insert_resource(PreparedCameraParams { uniform });
 }
+
+#[derive(Resource)]
+struct PreparedViewportDims {
+    dims: UVec2,
+    uniform: UniformBuffer<UVec2>,
+}
+
+fn prepare_viewport_dims(
+    mut commands: Commands,
+    camera: Query<&ExtractedCamera>,
+    device: Res<RenderDevice>,
+    queue: Res<RenderQueue>,
+) {
+    let camera = camera.single();
+
+    let mut uniform = UniformBuffer::from(camera.physical_viewport_size.unwrap());
+    uniform.write_buffer(&device, &queue);
+
+    commands.insert_resource(PreparedViewportDims {
+        dims: camera.physical_viewport_size.unwrap(),
+        uniform,
+    });
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, RenderSubGraph)]
 pub struct CuletGraph;
 
@@ -216,13 +245,6 @@ impl ViewNode for CuletNode {
         let prepared_mesh = world.resource::<PreparedMesh>();
         let camera_params = world.resource::<PreparedCameraParams>();
 
-        let viewport_dims = if let Some(camera) = camera {
-            camera.physical_viewport_size
-        } else {
-            None
-        }
-        .unwrap_or(UVec2::new(128, 128));
-
         let compute_bind_group = render_context.render_device().create_bind_group(
             None,
             &culet_pipeline.compute_layout,
@@ -239,10 +261,16 @@ impl ViewNode for CuletNode {
         let render_pipeline = pipeline_cache
             .get_render_pipeline(culet_pipeline.render_pipeline_id)
             .unwrap();
+
+        let viewport_dims = world.resource::<PreparedViewportDims>();
+
         let render_bind_group = render_context.render_device().create_bind_group(
             None,
             &culet_pipeline.render_layout,
-            &BindGroupEntries::sequential((&output_texture_view,)),
+            &BindGroupEntries::sequential((
+                &output_texture_view,
+                viewport_dims.uniform.binding().unwrap(),
+            )),
         );
 
         let command_encoder = render_context.command_encoder();
@@ -253,7 +281,11 @@ impl ViewNode for CuletNode {
 
         compute_pass.set_pipeline(compute_pipeline);
         compute_pass.set_bind_group(0, &compute_bind_group, &[]);
-        compute_pass.dispatch_workgroups((viewport_dims.x + 7) / 8, (viewport_dims.y + 7) / 8, 1);
+        compute_pass.dispatch_workgroups(
+            (viewport_dims.dims.x + 7) / 8,
+            (viewport_dims.dims.y + 7) / 8,
+            1,
+        );
         drop(compute_pass);
 
         let color_attachment_load_op = if let Some(camera) = camera {
@@ -309,7 +341,7 @@ impl FromWorld for CuletPipeline {
                 (
                     storage_buffer_read_only::<Vec<Vec4>>(false), // vertices
                     storage_buffer_read_only::<Vec<u32>>(false),  // indices
-                    storage_buffer_read_only::<Vec<u32>>(false), // triangle indices
+                    storage_buffer_read_only::<Vec<u32>>(false),  // triangle indices
                     storage_buffer_read_only::<Vec<BvhNode>>(false), // BVH nodes
                     uniform_buffer::<CuletCameraParams>(false),
                     texture_storage_2d(TextureFormat::Rgba32Float, StorageTextureAccess::ReadWrite), // output texture
@@ -320,7 +352,10 @@ impl FromWorld for CuletPipeline {
             None,
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::VERTEX_FRAGMENT,
-                (texture_2d(TextureSampleType::Float { filterable: false }),),
+                (
+                    texture_2d(TextureSampleType::Float { filterable: false }),
+                    uniform_buffer::<UVec2>(false),
+                ),
             ),
         );
 
@@ -401,6 +436,7 @@ impl Plugin for CuletPlugin {
             (
                 prepare_mesh.in_set(RenderSet::Prepare),
                 prepare_camera_params.in_set(RenderSet::Prepare),
+                prepare_viewport_dims.in_set(RenderSet::PrepareResources),
             ),
         );
 

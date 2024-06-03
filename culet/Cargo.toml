@@ -7,4 +7,3 @@ edition = "2021"
 bevy_panorbit_camera = "0.18.2"
 bevy = {version = "0.13", features = ["trace"] }
 bevy_stl = "0.13.0"
-bevy_mod_edge_detection = { git = "https://github.com/IceSentry/bevy_mod_edge_detection.git" }

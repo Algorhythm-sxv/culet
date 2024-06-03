@@ -281,7 +281,7 @@ fn trace(pixel_ray: Ray, max_depth: u32) -> vec3f {
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3u) {
     let focal_length = 0.1;
-    let edge_distance = focal_length * tan(radians(camera.fov / 2.0));
+    let edge_distance = focal_length * tan(camera.fov / 2.0);
     var up = normalize(cross(cross(camera.up, camera.look_dir), camera.look_dir));
     if dot(up, camera.up) < 1e-7 {
         up = -up;
