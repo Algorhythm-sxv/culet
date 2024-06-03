@@ -119,7 +119,7 @@ fn intersect_aabb(ray: Ray, min: vec3f, max: vec3f, far_limit: f32) -> f32 {
 }
 
 fn intersect_bvh(ray: Ray) -> HitInfo {
-    var node_stack: array<BvhNode, 64>;
+    var node_stack: array<u32, 32>;
     var node = bvh_nodes[0];
     var stack_idx = 0u;
 
@@ -143,18 +143,18 @@ fn intersect_bvh(ray: Ray) -> HitInfo {
 
             // the ray may hit other leaf nodes, so we keep going
             stack_idx--;
-            node = node_stack[stack_idx];
+            node = bvh_nodes[node_stack[stack_idx] ];
             continue;
         }
         
         // branch nodes
-        let left_child = bvh_nodes[node.left_or_first];
-        let right_child = bvh_nodes[node.left_or_first + 1];
-        var closest_child: BvhNode;
-        var furthest_child: BvhNode;
+        let left_child = node.left_or_first;
+        let right_child = node.left_or_first + 1;
+        var closest_child: u32;
+        var furthest_child: u32;
 
-        let left_distance = intersect_aabb(ray, left_child.aabb_min, left_child.aabb_max, closest_hit.ray_distance);
-        let right_distance = intersect_aabb(ray, right_child.aabb_min, right_child.aabb_max, closest_hit.ray_distance);
+        let left_distance = intersect_aabb(ray, bvh_nodes[left_child].aabb_min, bvh_nodes[left_child].aabb_max, closest_hit.ray_distance);
+        let right_distance = intersect_aabb(ray, bvh_nodes[right_child].aabb_min, bvh_nodes[right_child].aabb_max, closest_hit.ray_distance);
         var closest_distance: f32;
         var furthest_distance: f32;
 
@@ -178,11 +178,11 @@ fn intersect_bvh(ray: Ray) -> HitInfo {
             } else {
                 // we are done testing this node and its children, move up the stack
                 stack_idx--;
-                node = node_stack[stack_idx];
+                node = bvh_nodes[node_stack[stack_idx] ];
             }
         } else {
             // ray hit a child bounding box, test the closest child first and put the furthest on the stack for later
-            node = closest_child;
+            node = bvh_nodes[closest_child];
             if furthest_distance != 1e20 {
                 node_stack[stack_idx] = furthest_child;
                 stack_idx++;
@@ -194,7 +194,7 @@ fn intersect_bvh(ray: Ray) -> HitInfo {
 }
 
 fn intersect_scene(ray: Ray) -> HitInfo {
-    return intersect_triangles(ray);
+    return intersect_bvh(ray);
 }
 
 fn lighting_model(direction: vec3f) -> vec3f {
@@ -294,6 +294,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
     let ray = Ray(camera.origin, normalize(pixel_position - camera.origin));
 
-    let color = trace(ray, 8u); // TODO: configurable max bounces
+    let color = trace(ray, 10u); // TODO: configurable max bounces
     textureStore(output, vec2(i32(id.x), i32(id.y)), vec4(color, 1.0));
 }
